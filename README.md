@@ -84,6 +84,6 @@ To test the served model locally:
 
 The image analysis component uses deep learning to classify liver fibrosis from ultrasound images.
 
-*   **Model**: We utilized **USFM** (Universal Structure-aware Foundation Model), a foundation model specialized for medical imaging.
+*   **Model**: We utilized **[USFM](https://github.com/openmedlab/USFM)** (Ultra Sound Foundation Model), a foundation model specialized for medical imaging.
 *   **Training**: The USFM model was fine-tuned on the ultrasound dataset.
 *   **Performance**: The fine-tuned model achieved an accuracy of **72%**.
