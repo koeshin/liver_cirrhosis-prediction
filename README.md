@@ -8,6 +8,10 @@ This project utilizes both tabular patient data and ultrasound images to predict
 *   **Table Data**: [Kaggle Liver Cirrhosis Stage Classification](https://www.kaggle.com/datasets/aadarshvelu/liver-cirrhosis-stage-classification)
 *   **Image Data**: [Kaggle Liver Histopathology & Fibrosis Ultrasound](https://www.kaggle.com/vibhingupta028/liver-histopathology-fibrosis-ultrasound-images)
 
+## Demo
+
+[Demo Screen](https://github.com/koeshin/news_room)
+
 ## Architecture
 
 ### Table Data Architecture
