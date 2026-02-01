@@ -24,8 +24,8 @@ graph TD
     end
 
     subgraph Serving
-        D --> I[Prediction Results (Stage 1-3)];
-        D --> J[SHAP Explanations];
+        D --> I["Prediction Results (Stage 1-3)"];
+        D --> J["SHAP Explanations"];
     end
 ```
 
