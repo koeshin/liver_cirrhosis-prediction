@@ -27,11 +27,9 @@ graph LR
 ### Image Data Architecture
 ```mermaid
 graph LR
-    subgraph Image_Data_Pipeline
-        E[Ultrasound Images] --> F[USFM Pretrained];
-        F --> G[Fine-tuning];
-        G --> H[Classification];
-    end
+    E[Ultrasound Images] --> F[USFM Pretrained];
+    F --> G[Fine-tuning];
+    G --> H[Classification];
 ```
 
 ## Table Data
