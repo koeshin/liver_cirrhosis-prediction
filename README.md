@@ -9,6 +9,7 @@ This project utilizes both tabular patient data and ultrasound images to predict
 
 ## Architecture
 
+### Table Data Architecture
 ```mermaid
 graph LR
     subgraph Table_Data_Pipeline
@@ -17,15 +18,19 @@ graph LR
         C --> D[FastAPI Serving];
     end
 
+    subgraph Serving
+        D --> I["Prediction Results (Stage 1-3)"];
+        D --> J["SHAP Explanations"];
+    end
+```
+
+### Image Data Architecture
+```mermaid
+graph LR
     subgraph Image_Data_Pipeline
         E[Ultrasound Images] --> F[USFM Pretrained];
         F --> G[Fine-tuning];
         G --> H[Classification];
-    end
-
-    subgraph Serving
-        D --> I["Prediction Results (Stage 1-3)"];
-        D --> J["SHAP Explanations"];
     end
 ```
 
