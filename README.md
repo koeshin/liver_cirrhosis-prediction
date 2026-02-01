@@ -1,6 +1,7 @@
 # Liver Cirrhosis Prediction
 
 This project utilizes both tabular patient data and ultrasound images to predict liver cirrhosis stages.
+(현재 이미지 데이터 모델 서빙은 진행중)
 
 ## Data Sources
 
