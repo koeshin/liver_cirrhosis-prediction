@@ -10,7 +10,7 @@ This project utilizes both tabular patient data and ultrasound images to predict
 ## Architecture
 
 ```mermaid
-graph TD
+graph LR
     subgraph Table_Data_Pipeline
         A[Raw Tabular Data] --> B[Feature Engineering];
         B --> C[ML Models];
@@ -51,6 +51,27 @@ The solution expects an Ensemble approach served via **FastAPI**:
     *   A FastAPI backend serves the predictions.
     *   It dynamically selects the model with the highest confidence for the specific patient.
     *   **SHAP Analysis** is generated in real-time to provide explainable AI insights for the prediction.
+
+### How to Run & Test (Table Data)
+
+To test the served model locally:
+
+1.  **Environment Setup**:
+    Ensure you have the required dependencies:
+    ```bash
+    pip install -r requirement.txt
+    pip install fastapi uvicorn python-multipart
+    ```
+
+2.  **Run the Server**:
+    Navigate to the project root and execute:
+    ```bash
+    python table_data/serving.py
+    ```
+
+3.  **Access the UI**:
+    Open your browser and visit: `http://localhost:8000`
+    You can input patient data and see the prediction along with SHAP analysis.
 
 ## Image Data
 
