@@ -9,8 +9,7 @@ This project utilizes both tabular patient data and ultrasound images to predict
 *   **Image Data**: [Kaggle Liver Histopathology & Fibrosis Ultrasound](https://www.kaggle.com/vibhingupta028/liver-histopathology-fibrosis-ultrasound-images)
 
 ## Demo
-
-[Demo Screen](https://github.com/koeshin/news_room)
+![Demo Screen](doc/serving_demo.png)
 
 ## Architecture
 
