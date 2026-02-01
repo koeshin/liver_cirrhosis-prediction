@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages]
+find = {}
+
+[project]
+name = "usdsgen"
+version = "0.1.0"
+description = "USDSGen"
+readme = "README.md"
+requires-python = ">=3.6"
+dependencies = [
+    "hydra-core",
+    "lightning",
+    "numpy",
+    "pandas",
+    "torch",
+    "Pillow",
+    "timm",
+    "torchmetrics",
+    "monai",
+    "omegaconf",
+    "mmsegmentation"
+]
+
+[project.scripts]
+usdsgen = "usdsgen.main:main"

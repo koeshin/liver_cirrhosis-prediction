@@ -1,0 +1,27 @@
+# !! install torch < 2.5.0
+lightning
+hydra_core
+omegaconf
+PyYAML
+scipy
+termcolor
+timm
+yacs
+datasets
+numpy
+hydra_colorlog
+ftfy
+umap-learn
+hausdorff
+seaborn
+regex
+tensorboard
+tabulate
+typing-extensions
+transformers
+albumentations
+torchmetrics
+monai
+mmsegmentation>=1.0.0
+# choose the mmcv from https://mmcv.readthedocs.io/en/latest/get_started/installation.html#install-mmcv
+# pip install mmcv==2.2.0 -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.4/index.html
