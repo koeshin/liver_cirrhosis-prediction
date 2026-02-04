@@ -180,7 +180,7 @@ class DynamicSelectionConfig:
     score_lambda_entropy: float = 0.15
     tie_margin: float = 0.02  # if scores are too close, fallback or mark uncertain
     topk_explanations: int = 5
-    calibration_method: str = "temperature"  # 'temperature' recommended
+    calibration_method: str = "isotonic"  # 'temperature' recommended
     ece_bins: int = 15
 
 
@@ -432,7 +432,6 @@ class PDCA_Workflow:
             },
             "explanation": explanation if explanation is not None else [],
         }
-
     # ---------- Validation summaries ----------
     def summarize_confidence(self, predictions: List[Dict[str, Any]]) -> Dict[str, Any]:
         confs = np.array([p["confidence"] for p in predictions], dtype=float)
@@ -445,3 +444,109 @@ class PDCA_Workflow:
             "p99": q[3],
             "uncertain_ratio": uncertain_ratio,
         }
+
+
+def _get_pre_and_estimator(pipeline):
+    """Pipeline에서 preprocessor와 최종 estimator(모델) 꺼내기"""
+    pre = pipeline.named_steps["preprocessor"]
+    est = pipeline.named_steps[list(pipeline.named_steps.keys())[-1]]
+    return pre, est
+
+def _to_dense(X):
+    """sparse -> dense (SHAP 안정성 위해)"""
+    return X.toarray() if hasattr(X, "toarray") else X
+
+def build_numeric_shap_explainer_from_pipeline(pipeline, X_background_raw, max_bg=200):
+    """
+    raw DF(문자 포함)를 받되,
+    내부에서만 preprocessor.transform 해서 numeric background로 explainer를 생성.
+    X_background_raw를 가공한 데이터를 외부 변수로 저장하지 않음.
+    """
+    pre, est = _get_pre_and_estimator(pipeline)
+
+    # background는 적당히 샘플링
+    bg = X_background_raw
+    if len(bg) > max_bg:
+        bg = bg.sample(max_bg, random_state=42)
+
+    X_bg_num = _to_dense(pre.transform(bg))
+
+    # 전처리 후 feature name 확보
+    if hasattr(pre, "get_feature_names_out"):
+        feature_names = list(pre.get_feature_names_out())
+    else:
+        feature_names = [f"f{i}" for i in range(X_bg_num.shape[1])]
+
+    # estimator는 numeric을 받으므로 이 함수만 SHAP에 제공
+    f = lambda X_num: est.predict_proba(X_num)
+
+    explainer = shap.Explainer(f, X_bg_num, feature_names=feature_names)
+    return explainer, pre, feature_names
+
+def explain_one_row_grouped(explainer, pre, feature_names, X_one_raw, feature_groups, class_index=0):
+    """
+    raw 1-row DF -> pre.transform -> numeric -> SHAP 계산
+    결과는 feature_groups 기준으로 그룹 합산.
+    """
+    X_num = _to_dense(pre.transform(X_one_raw))
+
+    try:
+        exp = explainer(X_num)
+        vals = exp.values
+    except Exception as e:
+        return [{"error": f"shap_failed: {str(e)}"}]
+
+    # vals shape 표준화 -> (features,)
+    if isinstance(vals, np.ndarray):
+        if vals.ndim == 3:      # (n, features, outputs)
+            v = vals[0, :, class_index]
+        elif vals.ndim == 2:    # (n, features)
+            v = vals[0, :]
+        else:
+            return [{"error": f"unexpected_shap_shape: {vals.shape}"}]
+    else:
+        return [{"error": "unexpected_shap_values_type"}]
+
+    # 그룹 합산: 원핫된 feature 이름은 'Sex_M' 같은 형태로 포함되므로 부분매칭 사용
+    grouped = {}
+    for group, raw_feats in feature_groups.items():
+        impact = 0.0
+        for rf in raw_feats:
+            idxs = [i for i, fn in enumerate(feature_names) if rf in fn]
+            for idx in idxs:
+                impact += float(v[idx])
+        if abs(impact) > 1e-6:
+            grouped[group] = impact
+
+    items = sorted(grouped.items(), key=lambda x: abs(x[1]), reverse=True)
+    return [{"group": k, "value": float(val), "direction": "increase" if val > 0 else "decrease"}
+            for k, val in items]
+            
+def explain_one_row_features(explainer, pre, feature_names, X_one_raw, class_index=0, top_k=15):
+    # raw -> numeric
+    X_num = pre.transform(X_one_raw)
+    if hasattr(X_num, "toarray"):
+        X_num = X_num.toarray()
+
+    exp = explainer(X_num)
+    vals = exp.values
+
+    # (features,)로 표준화
+    if vals.ndim == 3:      # (n, features, outputs)
+        v = vals[0, :, class_index]
+    elif vals.ndim == 2:    # (n, features)
+        v = vals[0, :]
+    else:
+        raise ValueError(f"Unexpected SHAP shape: {vals.shape}")
+
+    # Top-k by absolute impact
+    idx = np.argsort(np.abs(v))[::-1][:top_k]
+
+    out = []
+    for i in idx:
+        out.append({
+            "feature": feature_names[i],
+            "value": float(v[i]),
+            "direction": "increase" if v[i] > 0 else "decrease"
+        })
+    return out

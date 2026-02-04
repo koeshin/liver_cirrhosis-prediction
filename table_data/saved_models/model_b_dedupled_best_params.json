@@ -1,0 +1,25 @@
+{
+  "random_forest": {
+    "n_estimators": 203,
+    "max_depth": 21,
+    "min_samples_split": 3,
+    "min_samples_leaf": 1,
+    "max_features": "sqrt"
+  },
+  "xgboost": {
+    "n_estimators": 468,
+    "max_depth": 8,
+    "learning_rate": 0.06409473312598292,
+    "subsample": 0.9514092615407479,
+    "colsample_bytree": 0.7945961729306622
+  },
+  "lightgbm": {
+    "n_estimators": 213,
+    "max_depth": 12,
+    "learning_rate": 0.089067690213758,
+    "num_leaves": 80,
+    "subsample": 0.794636430287606,
+    "colsample_bytree": 0.6421931406988174
+  },
+  "best_model": "LightGBM"
+}
