@@ -1,0 +1,23 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Temporary Patch Scripts
+table_data/fix_notebook_nameerror.py
+table_data/inject_reload_notebook.py
+table_data/update_notebook.py
+table_data/robust_fix_split.py
+table_data/inject_metrics.py
+table_data/fix_calib_setup.py
+table_data/implement_3way_split.py
+table_data/update_notebook_shap.py
+table_data/debug_notebook_columns.py
+table_data/fix_notebook_prediction.py
+
+# System
+.DS_Store
