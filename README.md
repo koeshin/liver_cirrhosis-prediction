@@ -13,18 +13,21 @@ This project utilizes both tabular patient data and ultrasound images to predict
 
 ## Architecture
 
-### Table Data Architecture
+### Table Data Architecture (Hierarchical Inference)
 ```mermaid
 graph LR
-    subgraph Table_Data_Pipeline
-        A[Raw Tabular Data] --> B[Feature Engineering];
-        B --> C[ML Models];
-        C --> D[FastAPI Serving];
+    subgraph Pipeline
+        A[Raw Patient Data] --> B[Feature Engineering];
+        B --> C{Step 1: S3 vs S1+S2};
+        C -- "High Prob of S3" --> D[Predict Stage 3];
+        C -- "Low Prob of S3" --> E{Step 2: S2 vs S1};
+        E --> F[Predict Stage 2];
+        E --> G[Predict Stage 1];
     end
 
     subgraph Serving
-        D --> I["Prediction Results (Stage 1-3)"];
-        D --> J["SHAP Explanations"];
+        D & F & G --> H[Final Prediction & Probabilities];
+        H --> I[SHAP Explanation (Dynamic)];
     end
 ```
 
@@ -49,15 +52,17 @@ We implemented comprehensive feature engineering to enhance model performance:
 *   **Transformations**: Applied Log transformations to skewed distributions (e.g., Bilirubin, Copper, Alk_Phos) to normalize data.
 *   **Unit Standardization**: Converted units for values like Age, Bilirubin, and Albumin to match standard medical scales.
 
-### Models & Serving
+### Models & Serving (Hierarchical Cascade)
 
-The solution expects an Ensemble approach served via **FastAPI**:
+The solution uses a **2-Step Hierarchical Inference Pipeline** served via **FastAPI**:
 
-*   **Models**: The system utilizes **Random Forest**, **XGBoost**, and **LightGBM**, along with a **Voting Ensemble**.
-*   **Serving**: 
-    *   A FastAPI backend serves the predictions.
-    *   It dynamically selects the model with the highest confidence for the specific patient.
-    *   **SHAP Analysis** is generated in real-time to provide explainable AI insights for the prediction.
+1.  **Step 1 (S12 vs S3)**: A specialized model detects high-risk (Stage 3) patients first.
+2.  **Step 2 (S1 vs S2)**: If not Stage 3, a second model distinguishes between Stage 1 and Stage 2.
+3.  **Data Leakage Prevention**: We applied a **Global Split First** strategy (Seed 42) before filtering classes to ensure strict separation between Train and Test sets across all hierarchy levels.
+
+*   **Serving Features**: 
+    *   **Detailed Probabilities**: Outputs P(Stage 3), P(Stage 2), and P(Stage 1) by combining probabilites from both steps.
+    *   **Dynamic SHAP**: Automatically selects the most relevant model (S3 detector or S2/S1 classifier) to explain the decision.
 
 ### How to Run & Test (Table Data)
 
