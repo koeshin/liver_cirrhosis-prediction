@@ -64,6 +64,49 @@ The solution uses a **2-Step Hierarchical Inference Pipeline** served via **Fast
     *   **Detailed Probabilities**: Outputs P(Stage 3), P(Stage 2), and P(Stage 1) by combining probabilites from both steps.
     *   **Dynamic SHAP**: Automatically selects the most relevant model (S3 detector or S2/S1 classifier) to explain the decision.
 
+### Performance Comparison
+
+The hierarchical approach demonstrates significant performance gains, particularly in identifying the most critical high-risk stage (Stage 3).
+
+| Model | Accuracy | Stage 1 (F1) | Stage 2 (F1) | Stage 3 (F1) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Base Model (Multiclass)** | 0.91 | 0.90 | 0.89 | 0.93 |
+| **Hierarchical Model (Cascade)** | **0.92** | 0.90 | **0.91** | **0.96** |
+
+#### Detailed Reports
+
+<details>
+<summary>Base Model Classification Report</summary>
+
+```text
+              precision    recall  f1-score   support
+
+     Stage 1       0.90      0.91      0.90       554
+     Stage 2       0.90      0.89      0.89       613
+     Stage 3       0.93      0.93      0.93       625
+
+    accuracy                           0.91      1792
+   macro avg       0.91      0.91      0.91      1792
+weighted avg       0.91      0.91      0.91      1792
+```
+</details>
+
+<details>
+<summary>Hierarchical Model Classification Report</summary>
+
+```text
+              precision    recall  f1-score   support
+
+           1       0.90      0.91      0.90       554
+           2       0.90      0.92      0.91       613
+           3       0.98      0.94      0.96       625
+
+    accuracy                           0.92      1792
+   macro avg       0.92      0.92      0.92      1792
+weighted avg       0.93      0.92      0.92      1792
+```
+</details>
+
 ### How to Run & Test (Table Data)
 
 To test the served model locally:
