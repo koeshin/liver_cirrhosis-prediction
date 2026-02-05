@@ -21,3 +21,22 @@ table_data/fix_notebook_prediction.py
 
 # System
 .DS_Store
+
+# Artifacts and Data (Detailed)
+table_data/**/artifacts/
+table_data/**/logs/
+table_data/**/data/
+table_data/**/*.pkl
+table_data/**/*.h5
+table_data/**/*.joblib
+table_data/saved_models/
+*.log
+
+# Exceptions for Final Models (Allow these)
+!table_data/**/artifacts/final_models/
+!table_data/**/artifacts/final_models/*.pkl
+!table_data/**/artifacts/final_models/*.json
+
+# PyCache
+__pycache__/
+

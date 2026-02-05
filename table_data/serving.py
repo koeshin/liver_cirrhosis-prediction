@@ -13,265 +13,220 @@ import io
 import base64
 import os
 import json
+from sklearn.preprocessing import StandardScaler
 
 # Initialize FastAPI
-app = FastAPI(title="Liver Cirrhosis Progression Prediction")
+app = FastAPI(title="Liver Cirrhosis Progression Prediction (Hierarchical)")
 
-# Load Models (Global variables)
-models = {}
-preprocessor = None
-best_params = {}
+# Global Variables
+sys_s3 = None
+sys_s2 = None
+
+def load_system(base_path):
+    out_dir = f"{base_path}/artifacts/final_models"
+    
+    if not os.path.exists(f"{out_dir}/model_meta.json"):
+        print(f"Warning: Model artifacts not found in {out_dir}")
+        return None
+        
+    with open(f"{out_dir}/model_meta.json", 'r') as f:
+        meta = json.load(f)
+        
+    scaler = joblib.load(f"{out_dir}/scaler.pkl")
+    
+    models = {}
+    for m_name in ['rf', 'xgb', 'lgbm']:
+        p = f"{out_dir}/{m_name}.pkl"
+        if os.path.exists(p):
+            models[m_name] = joblib.load(p)
+            
+    return {
+        'meta': meta,
+        'scaler': scaler,
+        'models': models
+    }
 
 def load_models():
-    global models, preprocessor, best_params
-    model_dir = "saved_models"
+    global sys_s3, sys_s2
+    print("Loading Hierarchical Systems...")
     
-    print("Loading models...")
-    try:
-        models['Random Forest'] = joblib.load(os.path.join(model_dir, "model_b_random_forest.pkl"))
-        models['XGBoost'] = joblib.load(os.path.join(model_dir, "model_b_xgboost.pkl"))
-        models['LightGBM'] = joblib.load(os.path.join(model_dir, "model_b_lightgbm.pkl"))
-        models['Ensemble'] = joblib.load(os.path.join(model_dir, "model_b_voting_ensemble.pkl"))
-        
-        preprocessor = joblib.load(os.path.join(model_dir, "model_b_preprocessor.pkl"))
-        
-        with open(os.path.join(model_dir, "model_b_best_params.json"), 'r') as f:
-            best_params = json.load(f)
-            
-        print("✅ Models loaded successfully")
-    except Exception as e:
-        print(f"❌ Error loading models: {e}")
+    sys_s3 = load_system("S12_vs_S3")
+    sys_s2 = load_system("S1_vs_S2")
+    
+    if sys_s3 and sys_s2:
+        print("✅ Systems loaded successfully")
+        print(f"  S3 Threshold: {sys_s3['meta']['threshold']:.4f}")
+        print(f"  S2 Threshold: {sys_s2['meta']['threshold']:.4f}")
+    else:
+        print("❌ Failed to load one or both systems.")
 
-# Feature Engineering Function (Must match notebook logic)
-def engineer_features(data: dict) -> pd.DataFrame:
-    # Create DataFrame from single input
-    df = pd.DataFrame([data])
+def create_score_feature(X, meta, score_meta):
+    weights = np.array(score_meta['weights'])
+    top3_cols = score_meta['top3_cols']
     
-    # 1. Medical Feature Engineering
-    float_cols = ['Age', 'Bilirubin', 'Cholesterol', 'Albumin', 'Copper', 'Alk_Phos', 'SGOT', 'Tryglicerides', 'Platelets', 'Prothrombin']
-    for col in float_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+    if len(weights) == 0:
+        return np.zeros(len(X))
+        
+    score_mean = np.array(score_meta['score_scaler_mean'])
+    score_scale = np.array(score_meta['score_scaler_scale'])
     
-    # Age: Input is now in Years
-    df['Age_Year'] = df['Age']
-    df['Age'] = df['Age'] * 365.25 # Keep days for consistency if needed elsewhere
+    # Handle single sample DataFrame
+    # Ensure columns exist
+    missing = [c for c in top3_cols if c not in X.columns]
+    if missing:
+        print(f"Warning: Missing columns for score: {missing}")
+        return np.zeros(len(X))
+        
+    X_sub = X[top3_cols].values
+    X_sub_s = (X_sub - score_mean) / score_scale
+    scores = np.dot(X_sub_s, weights)
+    return scores
+
+def prepare_inference_data(system, X_df):
+    meta = system['meta']
+    scaler = system['scaler']
     
-    # Unit conversions
-    df['bili_umolL'] = df['Bilirubin'] * 17.1
-    df['alb_gL'] = df['Albumin'] * 10
-    df['plt_1000uL'] = df['Platelets'] / 1000
+    # 1. Feature Prep
+    # Create Score Feature
+    score_vals = create_score_feature(X_df, meta, meta['score_meta'])
+    X_df_scored = X_df.copy()
+    X_df_scored['top3_score'] = score_vals
     
-    # ALBI Score
-    df['ALBI'] = (np.log10(df['bili_umolL']) * 0.66) + (df['alb_gL'] * -0.085)
+    # One Hot (Naive matching)
+    X_ohe = pd.get_dummies(X_df_scored, drop_first=True)
     
-    # PALBI Score  
-    df['PALBI'] = (df['ALBI'] * 1.0) + (df['plt_1000uL'] * -0.04)
+    # Align Columns
+    final_cols = meta['features']
+    for c in final_cols:
+        if c not in X_ohe.columns:
+            X_ohe[c] = 0
+            
+    X_ready = X_ohe[final_cols]
     
-    # APRI
-    df['APRI'] = (df['SGOT'] / 40) / df['plt_1000uL']
+    # 2. Scale
+    X_scaled = pd.DataFrame(scaler.transform(X_ready), columns=final_cols)
     
-    # FIB-4
-    df['FIB4'] = (df['Age_Year'] * df['SGOT']) / (df['plt_1000uL'] * np.sqrt(df['Bilirubin']))
-    
-    # Bilirubin/Platelets
-    df['Bili_Platelet_Ratio'] = df['Bilirubin'] / (df['Platelets'] + 1)
-    
-    # Copper×Bilirubin
-    df['Copper_Bili_Interaction'] = df['Copper'] * df['Bilirubin']
-    
-    # 2. Log Transformation
-    log_cols = ['Bilirubin', 'Copper', 'Alk_Phos', 'Tryglicerides', 'SGOT', 'Prothrombin', 'Cholesterol']
-    for col in log_cols:
-         df[col] = np.log1p(df[col])
-    
-    return df
+    return X_scaled, X_ready # Return scaled for model, ready (unscaled OHE) for nothing? actually SHAP needs transformed usually
+
+def get_avg_prob(system, X_scaled):
+    probs = np.zeros(len(X_scaled))
+    models = system['models']
+    count = 0
+    for m in models.values():
+        probs += m.predict_proba(X_scaled)[:, 1]
+        count += 1
+    return probs / count if count > 0 else np.zeros(len(X_scaled))
 
 # HTML Template
 html_template = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Liver Cirrhosis Stage Prediction (Model B)</title>
+    <title>Hierarchical Liver Cirrhosis Prediction</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { padding: 20px; background-color: #f8f9fa; }
         .card { margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .result-box { padding: 15px; border-radius: 5px; margin-bottom: 10px; }
-        .stage-1 { background-color: #d4edda; color: #155724; }
-        .stage-2 { background-color: #fff3cd; color: #856404; }
-        .stage-3 { background-color: #f8d7da; color: #721c24; }
-        .feature-group { background-color: #fff; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6; margin-bottom: 15px; }
+        .stage-box { padding: 20px; border-radius: 10px; text-align: center; color: white; margin-bottom: 20px;}
+        .stage-1 { background-color: #28a745; }
+        .stage-2 { background-color: #ffc107; color: black; }
+        .stage-3 { background-color: #dc3545; }
+        .prob-bar { height: 25px; border-radius: 5px; margin-top: 5px;}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-4">🩺 Liver Cirrhosis Progression Prediction</h1>
-        <p class="text-center text-muted">Predicting Stage 1 vs 2 vs 3 (Model B)</p>
+        <h1 class="text-center mb-4">🩺 Liver Cirrhosis Hierarchical Prediction</h1>
         
         <div class="row">
-            <div class="col-md-5">
+            <div class="col-md-4">
                 <div class="card">
-                    <div class="card-header bg-primary text-white">
-                        <h4 class="mb-0">Patient Data</h4>
-                    </div>
+                    <div class="card-header bg-dark text-white">Patient Data</div>
                     <div class="card-body">
                         <form action="/predict" method="post">
-                            <div class="feature-group">
-                                <h5>Basic Info</h5>
-                                <div class="mb-2">
-                                    <label>Age (Years)</label>
-                                    <input type="number" name="Age" class="form-control" value="50" required>
-                                </div>
-                                <div class="mb-2">
-                                    <label>Sex</label>
-                                    <select name="Sex" class="form-select">
-                                        <option value="F">Female</option>
-                                        <option value="M">Male</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="feature-group">
-                                <h5>Blood Tests</h5>
-                                <div class="row">
-                                    <div class="col-6 mb-2">
-                                        <label>Bilirubin (mg/dL)</label>
-                                        <input type="number" step="0.1" name="Bilirubin" class="form-control" value="1.0" required>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>Albumin (g/dL)</label>
-                                        <input type="number" step="0.1" name="Albumin" class="form-control" value="3.5" required>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>Copper (ug/day)</label>
-                                        <input type="number" step="1" name="Copper" class="form-control" value="50" required>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>Alk_Phos (U/L)</label>
-                                        <input type="number" step="1" name="Alk_Phos" class="form-control" value="1000" required>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>SGOT (U/mL)</label>
-                                        <input type="number" step="0.1" name="SGOT" class="form-control" value="100" required>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>Cholesterol (mg/dL)</label>
-                                        <input type="number" step="1" name="Cholesterol" class="form-control" value="300" required>
-                                    </div>
-                                     <div class="col-6 mb-2">
-                                        <label>Tryglicerides (mg/dL)</label>
-                                        <input type="number" step="1" name="Tryglicerides" class="form-control" value="100" required>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>Platelets (1000/uL)</label>
-                                        <input type="number" step="1" name="Platelets" class="form-control" value="250" required>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>Prothrombin (s)</label>
-                                        <input type="number" step="0.1" name="Prothrombin" class="form-control" value="10.0" required>
-                                    </div>
-                                </div>
+                            <!-- Inputs same as before, condensed -->
+                            <div class="mb-2"><label>Age</label><input type="number" name="Age" class="form-control" value="50"></div>
+                            <div class="mb-2"><label>Bilirubin</label><input type="number" step="0.1" name="Bilirubin" class="form-control" value="1.0"></div>
+                            <div class="mb-2"><label>Albumin</label><input type="number" step="0.1" name="Albumin" class="form-control" value="3.5"></div>
+                            <div class="mb-2"><label>Copper</label><input type="number" name="Copper" class="form-control" value="50"></div>
+                            <div class="mb-2"><label>Alk_Phos</label><input type="number" name="Alk_Phos" class="form-control" value="1000"></div>
+                            <div class="mb-2"><label>SGOT</label><input type="number" step="0.1" name="SGOT" class="form-control" value="100"></div>
+                            <div class="mb-2"><label>Cholesterol</label><input type="number" name="Cholesterol" class="form-control" value="300"></div>
+                            <div class="mb-2"><label>Tryglicerides</label><input type="number" name="Tryglicerides" class="form-control" value="100"></div>
+                            <div class="mb-2"><label>Platelets</label><input type="number" name="Platelets" class="form-control" value="250"></div>
+                            <div class="mb-2"><label>Prothrombin</label><input type="number" step="0.1" name="Prothrombin" class="form-control" value="10.0"></div>
+                            
+                            <div class="mb-2"><label>Edema</label>
+                                <select name="Edema" class="form-select">
+                                    <option value="N">No</option>
+                                    <option value="S">Edema (No Diuretics)</option>
+                                    <option value="Y">Edema (With Diuretics)</option>
+                                </select>
                             </div>
                             
-                            <div class="feature-group">
-                                <h5>Physical Symptoms (Y/N)</h5>
-                                <div class="row">
-                                    <div class="col-4 mb-2">
-                                        <label>Ascites</label>
-                                        <select name="Ascites" class="form-select">
-                                            <option value="N">No</option>
-                                            <option value="Y">Yes</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-4 mb-2">
-                                        <label>Hepatomegaly</label>
-                                        <select name="Hepatomegaly" class="form-select">
-                                            <option value="N">No</option>
-                                            <option value="Y">Yes</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-4 mb-2">
-                                        <label>Spiders</label>
-                                        <select name="Spiders" class="form-select">
-                                            <option value="N">No</option>
-                                            <option value="Y">Yes</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-6 mb-2">
-                                        <label>Edema</label>
-                                        <select name="Edema" class="form-select">
-                                            <option value="N">No Edema</option>
-                                            <option value="S">Edema (No Diuretics)</option>
-                                            <option value="Y">Edema (With Diuretics)</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
+                            <!-- Hidden/Fixed inputs for simplicity if not in form -->
+                            <input type="hidden" name="Sex" value="F">
+                            <input type="hidden" name="Ascites" value="N">
+                            <input type="hidden" name="Hepatomegaly" value="N">
+                            <input type="hidden" name="Spiders" value="N">
 
-                            <button type="submit" class="btn btn-primary w-100 btn-lg">Predict Stage</button>
+                            <button type="submit" class="btn btn-primary w-100 mt-3">Predict</button>
                         </form>
                     </div>
                 </div>
             </div>
             
-            <div class="col-md-7">
-                {% if prediction_results %}
+            <div class="col-md-8">
+                {% if result %}
                 <div class="card">
-                    <div class="card-header bg-success text-white">
-                        <h4 class="mb-0">Prediction Results</h4>
+                    <div class="card-header bg-primary text-white">
+                        <h4>Result: Stage {{ result.final_stage }}</h4>
                     </div>
                     <div class="card-body">
-                        <h5>Model Consensus</h5>
+                         <div class="stage-box stage-{{ result.final_stage }}">
+                            <h1>Stage {{ result.final_stage }}</h1>
+                            <p class="mb-0">Determined via Hierarchical Cascade</p>
+                        </div>
+                        
                         <div class="row">
-                            {% for model_name, result in prediction_results.items() %}
                             <div class="col-md-6">
-                                <div class="result-box border">
-                                    <strong>{{ model_name }}</strong>
-                                    <div class="d-flex justify-content-between align-items-center mt-2">
-                                        <span class="badge bg-secondary">Stage {{ result.stage }}</span>
-                                        <small>Confidence: {{ "%.1f"|format(result.confidence * 100) }}%</small>
-                                    </div>
-                                    <div class="progress mt-2" style="height: 5px;">
-                                        <div class="progress-bar" role="progressbar" style="width: {{ result.confidence * 100 }}%"></div>
-                                    </div>
+                                <h5>Step 1: S12 vs S3</h5>
+                                <p>Probability of Stage 3: <strong>{{ "%.1f"|format(result.prob_s3 * 100) }}%</strong></p>
+                                <p>(Threshold: {{ "%.2f"|format(result.th_s3) }})</p>
+                                <div class="progress prob-bar">
+                                    <div class="progress-bar bg-danger" style="width:{{ result.prob_s3 * 100 }}%">S3</div>
                                 </div>
                             </div>
-                            {% endfor %}
+                            <div class="col-md-6">
+                                <h5>Step 2: S1 vs S2</h5>
+                                <p>Probability of Stage 2 (if not S3): <strong>{{ "%.1f"|format(result.prob_s2 * 100) }}%</strong></p>
+                                <p>(Threshold: {{ "%.2f"|format(result.th_s2) }})</p>
+                                <div class="progress prob-bar">
+                                    <div class="progress-bar bg-warning" style="width:{{ result.prob_s2 * 100 }}%">S2</div>
+                                </div>
+                            </div>
                         </div>
+
+                        <hr>
+                        <h5>Estimated Probabilities</h5>
+                        <ul>
+                             <li>P(Stage 3) = {{ "%.1f"|format(result.final_probs.p3 * 100) }}%</li>
+                             <li>P(Stage 2) = {{ "%.1f"|format(result.final_probs.p2 * 100) }}%</li>
+                             <li>P(Stage 1) = {{ "%.1f"|format(result.final_probs.p1 * 100) }}%</li>
+                        </ul>
                     </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-header bg-info text-dark">
-                        <h4 class="mb-0">🔍 Why this prediction? (SHAP Analysis)</h4>
+                    <div class="card-header">
+                        <h4>🔍 SHAP Analysis (LGBM)</h4>
                     </div>
                     <div class="card-body text-center">
-                        <p class="text-muted">Analysis based on <strong>{{ best_model_name }}</strong> (Highest Confidence)</p>
+                        <p>Explaining validation for: <strong>{{ result.shap_target }}</strong></p>
                         {% if shap_image %}
-                        <img src="data:image/png;base64,{{ shap_image }}" class="img-fluid" alt="SHAP Waterfall Plot">
-                        {% else %}
-                        <p>SHAP visualization failed to generate.</p>
+                        <img src="data:image/png;base64,{{ shap_image }}" class="img-fluid" alt="SHAP">
                         {% endif %}
                     </div>
-                </div>
-                
-                <div class="card">
-                     <div class="card-header bg-light">
-                        <h5 class="mb-0">Derived Medical Features</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                             <div class="col-md-4 mb-2"><strong>ALBI:</strong> {{ "%.2f"|format(features.ALBI) }}</div>
-                             <div class="col-md-4 mb-2"><strong>APRI:</strong> {{ "%.2f"|format(features.APRI) }}</div>
-                             <div class="col-md-4 mb-2"><strong>FIB-4:</strong> {{ "%.2f"|format(features.FIB4) }}</div>
-                             <div class="col-md-4 mb-2"><strong>PALBI:</strong> {{ "%.2f"|format(features.PALBI) }}</div>
-                             <div class="col-md-8"><strong>Bili/Platelet:</strong> {{ "%.4f"|format(features.Bili_Platelet_Ratio) }}</div>
-                        </div>
-                    </div>
-                </div>
-                {% else %}
-                <div class="alert alert-info">
-                    👈 Enter patient data on the left to generate predictions.
                 </div>
                 {% endif %}
             </div>
@@ -290,142 +245,137 @@ def startup_event():
 def read_root():
     from jinja2 import Template
     t = Template(html_template)
-    return t.render(prediction_results=None)
+    return t.render(result=None)
 
 @app.post("/predict", response_class=HTMLResponse)
 async def predict(request: Request,
-                  Age: float = Form(...), Sex: str = Form(...), 
-                  Bilirubin: float = Form(...), Albumin: float = Form(...),
-                  Copper: float = Form(...), Alk_Phos: float = Form(...),
-                  SGOT: float = Form(...), Cholesterol: float = Form(...),
-                  Tryglicerides: float = Form(...), Platelets: float = Form(...),
-                  Prothrombin: float = Form(...), 
-                  Ascites: str = Form(...), Hepatomegaly: str = Form(...),
-                  Spiders: str = Form(...), Edema: str = Form(...)):
+                  Age: float = Form(...), Bilirubin: float = Form(...), 
+                  Albumin: float = Form(...), Copper: float = Form(...), 
+                  Alk_Phos: float = Form(...), SGOT: float = Form(...), 
+                  Cholesterol: float = Form(...), Tryglicerides: float = Form(...), 
+                  Platelets: float = Form(...), Prothrombin: float = Form(...), 
+                  Edema: str = Form(...),
+                  Sex: str = Form("F"), Ascites: str = Form("N"), 
+                  Hepatomegaly: str = Form("N"), Spiders: str = Form("N")):
     
-    # 1. Prepare Data
+    # Feature Engineering (Same as before)
     input_data = {
-        'Age': Age, 'Sex': Sex, 'Bilirubin': Bilirubin, 'Albumin': Albumin,
+        'Age': Age, 'Bilirubin': Bilirubin, 'Albumin': Albumin,
         'Copper': Copper, 'Alk_Phos': Alk_Phos, 'SGOT': SGOT, 
         'Cholesterol': Cholesterol, 'Tryglicerides': Tryglicerides, 
         'Platelets': Platelets, 'Prothrombin': Prothrombin,
-        'Ascites': Ascites, 'Hepatomegaly': Hepatomegaly, 
+        # Default categorical logic if inputs missing in form, but we pass them
+        'Sex': Sex, 'Ascites': Ascites, 'Hepatomegaly': Hepatomegaly, 
         'Spiders': Spiders, 'Edema': Edema
     }
     
-    # 2. Engineer Features
-    df_features = engineer_features(input_data)
+    df = pd.DataFrame([input_data])
+    # ... Apply FE (simplified copy from before) ...
+    df['Age_Year'] = df['Age'] / 365.25 # Assuming input age is days? No, form usually years. 
+    # WAIT, form input label says "Age" but previous code had label "Age (Years)" and logic `df['Age_Year'] = df['Age']`.
+    # Let's assume input is YEARS (e.g. 50).
+    df['Age_Year'] = df['Age'] 
     
-    inference_features = [
-        'Ascites', 'Hepatomegaly', 'Spiders', 'Edema', 
-        'Bilirubin', 'Cholesterol', 'Albumin', 'Copper', 'Alk_Phos', 'SGOT', 
-        'Tryglicerides', 'Platelets', 'Prothrombin', 
-        'ALBI', 'PALBI', 'APRI', 'FIB4', 'Bili_Platelet_Ratio', 'Copper_Bili_Interaction'
-    ]
+    df['bili_umolL'] = df['Bilirubin'] * 17.1
+    df['alb_gL'] = df['Albumin'] * 10
+    df['plt_1000uL'] = df['Platelets'] / 1000
+    df['ALBI'] = (np.log10(df['bili_umolL']) * 0.66) + (df['alb_gL'] * -0.085)
+    df['PALBI'] = (df['ALBI'] * 1.0) + (df['plt_1000uL'] * -0.04)
+    df['APRI'] = (df['SGOT'] / 40) / df['plt_1000uL']
     
-    df_inference = df_features[inference_features].copy()
+    log_cols = ['Bilirubin', 'Copper', 'Alk_Phos', 'Tryglicerides', 'SGOT', 'Prothrombin', 'Cholesterol']
+    for col in log_cols:
+        df[col] = np.log1p(df[col])
+        
+    # Inference
+    X_s3_scaled, _ = prepare_inference_data(sys_s3, df)
+    prob_s3 = get_avg_prob(sys_s3, X_s3_scaled)[0]
+    th_s3 = sys_s3['meta']['threshold']
     
-    # 3. Model Inference & results
-    prediction_results = {}
-    best_confidence = -1
-    best_model_name = ""
+    X_s2_scaled, _ = prepare_inference_data(sys_s2, df)
+    prob_s2 = get_avg_prob(sys_s2, X_s2_scaled)[0]
+    th_s2 = sys_s2['meta']['threshold']
     
-    for name, model in models.items():
-        try:
-            pred_class = model.predict(df_inference)[0] # 0, 1, 2
-            pred_proba = model.predict_proba(df_inference)[0]
-            confidence = float(pred_proba[pred_class])
-            
-            prediction_results[name] = {
-                'stage': int(pred_class + 1),
-                'confidence': confidence
-            }
-            
-            # Find best model based on confidence (excluding Ensemble for SHAP if possible, or just the best)
-            if name != 'Ensemble' and confidence > best_confidence:
-                best_confidence = confidence
-                best_model_name = name
-                
-        except Exception as e:
-            print(f"Error predicting with {name}: {e}")
-            prediction_results[name] = {'stage': 'Error', 'confidence': 0.0}
+    final_stage = 1
+    shap_model_system = None
+    shap_X = None
+    shap_target_name = ""
+    
+    # Cascade Logic
+    if prob_s3 > th_s3:
+        final_stage = 3
+        shap_model_system = sys_s3
+        shap_X = X_s3_scaled
+        shap_target_name = "Stage 3 (High Risk)"
+    else:
+        if prob_s2 > th_s2:
+            final_stage = 2
+            shap_model_system = sys_s2
+            shap_X = X_s2_scaled
+            shap_target_name = "Stage 2 vs 1"
+        else:
+            final_stage = 1
+            shap_model_system = sys_s2
+            shap_X = X_s2_scaled
+            shap_target_name = "Stage 1 (Low Risk)"
 
-    # Backup if all failed or only ensemble exists
-    if not best_model_name:
-         best_model_name = 'LightGBM'
-
-    # 4. SHAP Visualization (Best Confidence Model)
+    # Final Probabilities Estimation
+    p3 = prob_s3
+    p2 = (1 - p3) * prob_s2
+    p1 = (1 - p3) * (1 - prob_s2)
+    
+    # SHAP Generation (LGBM Fixed)
     shap_image = None
     try:
-        model_to_explain = models.get(best_model_name)
-        if model_to_explain:
-            pipeline_steps = dict(model_to_explain.steps)
-            preproc = pipeline_steps['preprocessor']
-            classifier = pipeline_steps['classifier']
+        model = shap_model_system['models'].get('lgbm')
+        if model:
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(shap_X)
             
-            X_transformed = preproc.transform(df_inference)
-            
-            feature_names = []
-            for name, transformer, features in preproc.transformers_:
-                if name == 'num':
-                    feature_names.extend(features)
-                elif name == 'cat':
-                    if hasattr(transformer, 'get_feature_names_out'):
-                        feature_names.extend(transformer.get_feature_names_out(features))
-            
-            # Use TreeExplainer for XGB, LGBM, RF
-            explainer = shap.TreeExplainer(classifier)
-            shap_values = explainer.shap_values(X_transformed)
-            
-            pred_idx = prediction_results[best_model_name]['stage'] - 1
-            
-            # Multi-class output varies by library
-            if isinstance(shap_values, list): # RF, sometimes LGBM
-                shap_val_sample = shap_values[pred_idx][0]
-                expected_val = explainer.expected_value[pred_idx]
-            else: # XGB or newer LGBM
-                if len(shap_values.shape) == 3: # (samples, features, classes)
-                    shap_val_sample = shap_values[0, :, pred_idx]
-                    expected_val = explainer.expected_value[pred_idx]
-                else: # Binary or flattened?
-                    shap_val_sample = shap_values[0]
-                    expected_val = explainer.expected_value
+            # LGBM often returns list [class0, class1] for binary
+            # We want positive class (index 1) explanation usually
+            if isinstance(shap_values, list):
+                shap_val = shap_values[1][0]
+                base_val = explainer.expected_value[1]
+            else:
+                 # If binary, shap_values might be just 1 array?
+                 if len(shap_values.shape) == 2:
+                     shap_val = shap_values[0] # (1, features)
+                     base_val = explainer.expected_value
+                 else:
+                     # 3D (1, feat, 2) ?
+                     shap_val = shap_values[0, :, 1]
+                     base_val = explainer.expected_value[1]
             
             plt.figure()
             shap.waterfall_plot(
-                shap.Explanation(
-                    values=shap_val_sample,
-                    base_values=expected_val,
-                    data=X_transformed[0],
-                    feature_names=feature_names
-                ),
-                show=False,
-                max_display=12
+                shap.Explanation(values=shap_val, base_values=base_val, 
+                                 data=shap_X.iloc[0].values, 
+                                 feature_names=shap_X.columns.tolist()),
+                show=False, max_display=10
             )
-            
             buf = io.BytesIO()
             plt.tight_layout()
             plt.savefig(buf, format='png', bbox_inches='tight')
             buf.seek(0)
             shap_image = base64.b64encode(buf.read()).decode('utf-8')
             plt.close()
-            
     except Exception as e:
-        print(f"SHAP generation error for {best_model_name}: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"SHAP Error: {e}")
 
-    # Render Template
+    result = {
+        'final_stage': final_stage,
+        'prob_s3': prob_s3,
+        'th_s3': th_s3,
+        'prob_s2': prob_s2,
+        'th_s2': th_s2,
+        'final_probs': {'p3': p3, 'p2': p2, 'p1': p1},
+        'shap_target': shap_target_name
+    }
+    
     from jinja2 import Template
     t = Template(html_template)
-    html_content = t.render(
-        prediction_results=prediction_results,
-        shap_image=shap_image,
-        features=df_features.iloc[0].to_dict(),
-        best_model_name=best_model_name
-    )
-    
-    return HTMLResponse(content=html_content)
+    return HTMLResponse(content=t.render(result=result, shap_image=shap_image))
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
