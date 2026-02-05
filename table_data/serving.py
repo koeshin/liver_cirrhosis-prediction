@@ -132,6 +132,8 @@ html_template = """
         .stage-2 { background-color: #ffc107; color: black; }
         .stage-3 { background-color: #dc3545; }
         .prob-bar { height: 25px; border-radius: 5px; margin-top: 5px;}
+        .test-btn-group { margin-bottom: 15px; }
+        .test-btn-group .btn { margin-right: 5px; }
     </style>
 </head>
 <body>
@@ -143,38 +145,90 @@ html_template = """
                 <div class="card">
                     <div class="card-header bg-dark text-white">Patient Data</div>
                     <div class="card-body">
-                        <form action="/predict" method="post">
+                        <!-- Test Data Buttons -->
+                        <div class="test-btn-group">
+                            <label class="form-label fw-bold">📋 Load Test Data:</label>
+                            <div>
+                                <button type="button" class="btn btn-success btn-sm" onclick="loadStage1()">Stage 1</button>
+                                <button type="button" class="btn btn-warning btn-sm" onclick="loadStage2()">Stage 2</button>
+                                <button type="button" class="btn btn-danger btn-sm" onclick="loadStage3()">Stage 3</button>
+                            </div>
+                        </div>
+                        <hr>
+                        
+                        <form id="predictionForm" action="/predict" method="post">
                             <!-- Inputs same as before, condensed -->
-                            <div class="mb-2"><label>Age</label><input type="number" name="Age" class="form-control" value="50"></div>
-                            <div class="mb-2"><label>Bilirubin</label><input type="number" step="0.1" name="Bilirubin" class="form-control" value="1.0"></div>
-                            <div class="mb-2"><label>Albumin</label><input type="number" step="0.1" name="Albumin" class="form-control" value="3.5"></div>
-                            <div class="mb-2"><label>Copper</label><input type="number" name="Copper" class="form-control" value="50"></div>
-                            <div class="mb-2"><label>Alk_Phos</label><input type="number" name="Alk_Phos" class="form-control" value="1000"></div>
-                            <div class="mb-2"><label>SGOT</label><input type="number" step="0.1" name="SGOT" class="form-control" value="100"></div>
-                            <div class="mb-2"><label>Cholesterol</label><input type="number" name="Cholesterol" class="form-control" value="300"></div>
-                            <div class="mb-2"><label>Tryglicerides</label><input type="number" name="Tryglicerides" class="form-control" value="100"></div>
-                            <div class="mb-2"><label>Platelets</label><input type="number" name="Platelets" class="form-control" value="250"></div>
-                            <div class="mb-2"><label>Prothrombin</label><input type="number" step="0.1" name="Prothrombin" class="form-control" value="10.0"></div>
+                            <div class="mb-2"><label>Age</label><input type="number" id="Age" name="Age" class="form-control" value="49"></div>
+                            <div class="mb-2"><label>Bilirubin</label><input type="number" step="0.1" id="Bilirubin" name="Bilirubin" class="form-control" value="21.6"></div>
+                            <div class="mb-2"><label>Albumin</label><input type="number" step="0.1" id="Albumin" name="Albumin" class="form-control" value="3.31"></div>
+                            <div class="mb-2"><label>Copper</label><input type="number" step="0.01" id="Copper" name="Copper" class="form-control" value="221.0"></div>
+                            <div class="mb-2"><label>Alk_Phos</label><input type="number" step="0.01" id="Alk_Phos" name="Alk_Phos" class="form-control" value="3697.4"></div>
+                            <div class="mb-2"><label>SGOT</label><input type="number" step="0.01" id="SGOT" name="SGOT" class="form-control" value="101.91"></div>
+                            <div class="mb-2"><label>Cholesterol</label><input type="number" step="0.01" id="Cholesterol" name="Cholesterol" class="form-control" value="175.0"></div>
+                            <div class="mb-2"><label>Tryglicerides</label><input type="number" step="0.01" id="Tryglicerides" name="Tryglicerides" class="form-control" value="168.0"></div>
+                            <div class="mb-2"><label>Platelets</label><input type="number" step="0.01" id="Platelets" name="Platelets" class="form-control" value="80.0"></div>
+                            <div class="mb-2"><label>Prothrombin</label><input type="number" step="0.1" id="Prothrombin" name="Prothrombin" class="form-control" value="12.0"></div>
                             
-                            <div class="mb-2"><label>Edema</label>
-                                <select name="Edema" class="form-select">
+                            <div class="mb-2"><label>Sex</label>
+                                <select id="Sex" name="Sex" class="form-select">
+                                    <option value="F" selected>Female</option>
+                                    <option value="M">Male</option>
+                                </select>
+                            </div>
+                            <div class="mb-2"><label>Ascites</label>
+                                <select id="Ascites" name="Ascites" class="form-select">
                                     <option value="N">No</option>
-                                    <option value="S">Edema (No Diuretics)</option>
+                                    <option value="Y" selected>Yes</option>
+                                </select>
+                            </div>
+                            <div class="mb-2"><label>Hepatomegaly</label>
+                                <select id="Hepatomegaly" name="Hepatomegaly" class="form-select">
+                                    <option value="N">No</option>
+                                    <option value="Y" selected>Yes</option>
+                                </select>
+                            </div>
+                            <div class="mb-2"><label>Spiders</label>
+                                <select id="Spiders" name="Spiders" class="form-select">
+                                    <option value="N">No</option>
+                                    <option value="Y" selected>Yes</option>
+                                </select>
+                            </div>
+                            <div class="mb-2"><label>Edema</label>
+                                <select id="Edema" name="Edema" class="form-select">
+                                    <option value="N">No</option>
+                                    <option value="S" selected>Edema (No Diuretics)</option>
                                     <option value="Y">Edema (With Diuretics)</option>
                                 </select>
                             </div>
-                            
-                            <!-- Hidden/Fixed inputs for simplicity if not in form -->
-                            <input type="hidden" name="Sex" value="F">
-                            <input type="hidden" name="Ascites" value="N">
-                            <input type="hidden" name="Hepatomegaly" value="N">
-                            <input type="hidden" name="Spiders" value="N">
 
                             <button type="submit" class="btn btn-primary w-100 mt-3">Predict</button>
                         </form>
                     </div>
                 </div>
             </div>
+            
+            <script>
+            // liver_cirrhosis_deduped.csv에서 추출한 Stage별 샘플 데이터 (random_state=42)
+            const stageData = {
+                1: { Age: 52, Sex: "F", Bilirubin: 0.5, Albumin: 4.04, Copper: 227.0, Alk_Phos: 598.0, SGOT: 52.7, Cholesterol: 149.0, Tryglicerides: 57.0, Platelets: 421.0, Prothrombin: 9.9, Ascites: "N", Hepatomegaly: "Y", Spiders: "Y", Edema: "N" },
+                2: { Age: 46, Sex: "F", Bilirubin: 0.4, Albumin: 3.03, Copper: 97.65, Alk_Phos: 1982.66, SGOT: 122.56, Cholesterol: 369.51, Tryglicerides: 124.7, Platelets: 173.0, Prothrombin: 10.9, Ascites: "Y", Hepatomegaly: "N", Spiders: "Y", Edema: "N" },
+                3: { Age: 49, Sex: "F", Bilirubin: 21.6, Albumin: 3.31, Copper: 221.0, Alk_Phos: 3697.4, SGOT: 101.91, Cholesterol: 175.0, Tryglicerides: 168.0, Platelets: 80.0, Prothrombin: 12.0, Ascites: "Y", Hepatomegaly: "Y", Spiders: "Y", Edema: "S" }
+            };
+            
+            function loadStageData(stage) {
+                const data = stageData[stage];
+                for (const [key, value] of Object.entries(data)) {
+                    const el = document.getElementById(key);
+                    if (el) el.value = value;
+                }
+                // Visual feedback
+                alert('Stage ' + stage + ' 테스트 데이터가 로드되었습니다!');
+            }
+            
+            function loadStage1() { loadStageData(1); }
+            function loadStage2() { loadStageData(2); }
+            function loadStage3() { loadStageData(3); }
+            </script>
             
             <div class="col-md-8">
                 {% if result %}
