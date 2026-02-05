@@ -26,8 +26,8 @@ graph LR
     end
 
     subgraph Serving
-        D & F & G --> H[Final Prediction & Probabilities];
-        H --> I[SHAP Explanation (Dynamic)];
+        D & F & G --> H["Final Prediction & Probabilities"];
+        H --> I["SHAP Explanation (Dynamic)"];
     end
 ```
 
