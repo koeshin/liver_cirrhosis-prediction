@@ -1,0 +1,48 @@
+{
+    "dataset": "B",
+    "scaler": "standard",
+    "features": [
+        "Bilirubin",
+        "Cholesterol",
+        "Albumin",
+        "Copper",
+        "Alk_Phos",
+        "SGOT",
+        "Tryglicerides",
+        "Platelets",
+        "Prothrombin",
+        "Ascites_Y",
+        "Hepatomegaly_Y",
+        "Spiders_Y",
+        "Edema_S",
+        "Edema_Y",
+        "top3_score"
+    ],
+    "threshold": 0.3799999999999999,
+    "score_meta": {
+        "top3_cols": [
+            "Albumin",
+            "Platelets",
+            "Prothrombin"
+        ],
+        "weights": [
+            0.36768149882903983,
+            0.351288056206089,
+            0.2810304449648712
+        ],
+        "score_scaler_mean": [
+            3.494322400558269,
+            252.2926386140963,
+            2.4577370801528033
+        ],
+        "score_scaler_scale": [
+            0.3833702666814365,
+            93.96555998715593,
+            0.0744098202623422
+        ]
+    },
+    "metrics": {
+        "auc": 0.9807943751868514,
+        "f1": 0.9235070900738965
+    }
+}
