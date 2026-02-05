@@ -1,25 +1,25 @@
 {
   "random_forest": {
-    "n_estimators": 203,
-    "max_depth": 21,
-    "min_samples_split": 3,
+    "n_estimators": 312,
+    "max_depth": 20,
+    "min_samples_split": 4,
     "min_samples_leaf": 1,
     "max_features": "sqrt"
   },
   "xgboost": {
-    "n_estimators": 468,
+    "n_estimators": 246,
     "max_depth": 8,
-    "learning_rate": 0.06409473312598292,
-    "subsample": 0.9514092615407479,
-    "colsample_bytree": 0.7945961729306622
+    "learning_rate": 0.14554302449469458,
+    "subsample": 0.9957135154958927,
+    "colsample_bytree": 0.7634931040127816
   },
   "lightgbm": {
-    "n_estimators": 213,
-    "max_depth": 12,
-    "learning_rate": 0.089067690213758,
-    "num_leaves": 80,
-    "subsample": 0.794636430287606,
-    "colsample_bytree": 0.6421931406988174
+    "n_estimators": 297,
+    "max_depth": 11,
+    "learning_rate": 0.04982836792371132,
+    "num_leaves": 82,
+    "subsample": 0.8383825758409673,
+    "colsample_bytree": 0.7615715181984358
   },
   "best_model": "LightGBM"
 }
